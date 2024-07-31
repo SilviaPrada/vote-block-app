@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, SafeAreaView, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, FlatList, SafeAreaView, Dimensions, ActivityIndicator } from 'react-native';
 import { getDatabase, onValue, ref } from 'firebase/database';
 import { Candidate } from '../types/app';
 import PieChartComponent from '../component/PieChart';
@@ -31,9 +31,12 @@ const HomeTabScreen: React.FC<HomeTabScreenProps> = ({ election_id }) => {
                     const candidatesWithVoteCounts = await Promise.all(filteredCandidates.map(async (candidate) => {
                         const response = await fetch(`${API_URL}/getCandidateVoteCount/${election_id}/${candidate.candidate_id}`);
                         const voteData = await response.json();
-                        candidate.voteCount = voteData.voteCount;
+                        candidate.voteCount = parseInt(voteData.voteCount.hex, 16);
                         return candidate;
                     }));
+
+                    // Sort candidates by candidate_id in ascending order
+                    candidatesWithVoteCounts.sort((a, b) => a.candidate_id - b.candidate_id);
 
                     setCandidates(candidatesWithVoteCounts);
                     setLoading(false);
@@ -58,14 +61,15 @@ const HomeTabScreen: React.FC<HomeTabScreenProps> = ({ election_id }) => {
                 <Text style={styles.candidateVisi}>{item.vision}</Text>
                 <Text style={styles.candidateDetailTitle}>Mission</Text>
                 <Text style={styles.candidateMisi}>{item.mission}</Text>
+                <Text style={styles.voteCount}>Votes: {item.voteCount}</Text>
             </View>
         </View>
     );
 
-    const totalVotes = candidates.reduce((sum, candidate) => sum + parseInt(candidate.voteCount.hex, 16), 0);
+    const totalVotes = candidates.reduce((sum, candidate) => sum + (candidate.voteCount || 0), 0);
     const chartData = candidates.map((candidate, index) => ({
         name: '% ' + candidate.name,
-        population: totalVotes ? (parseInt(candidate.voteCount.hex, 16) / totalVotes) * 100 : 0,
+        population: totalVotes ? (candidate.voteCount / totalVotes) * 100 : 0,
         color: ["#96c31f", "#f5a623", "#f05656", "#50e3c2", "#4a90e2"][index % 5],
         legendFontColor: "#7F7F7F",
         legendFontSize: 15,
@@ -74,15 +78,39 @@ const HomeTabScreen: React.FC<HomeTabScreenProps> = ({ election_id }) => {
 
     return (
         <SafeAreaView style={styles.container}>
-            <Text style={styles.title}>Candidate List</Text>
             <FlatList
-                data={candidates}
-                renderItem={renderCandidateItem}
-                keyExtractor={(item) => item.candidate_id.toString()}
-                contentContainerStyle={styles.listContainer}
+                data={[]}
+                renderItem={null}
+                ListHeaderComponent={
+                    <>
+                        <Text style={styles.title}>Candidate List</Text>
+                        <FlatList
+                            data={candidates}
+                            renderItem={renderCandidateItem}
+                            keyExtractor={(item) => item.candidate_id.toString()}
+                            contentContainerStyle={styles.listContainer}
+                        />
+                        <Text style={styles.title}>Vote Counting Results</Text>
+                        <PieChartComponent data={chartData} />
+                        {/* <View style={styles.voteHistoryContainer}>
+                            <TextInput
+                                style={styles.searchBar}
+                                placeholder="Search by candidate ID"
+                                value={searchText}
+                                onChangeText={handleSearch}
+                            />
+                        </View> */}
+                    </>
+                }
+                // ListFooterComponent={
+                //     <FlatList
+                //         data={filteredHistories}
+                //         keyExtractor={(item) => item.key}
+                //         renderItem={renderVoteHistoryItem}
+                //         contentContainerStyle={styles.listContent}
+                //     />
+                // }
             />
-            <Text style={styles.title}>Vote Counting Results</Text>
-            <PieChartComponent data={chartData} />
         </SafeAreaView>
     );
 };
@@ -204,11 +232,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         padding: 16,
         height: 40,
-    },
-    loadingContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
     },
 });
 

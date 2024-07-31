@@ -23,12 +23,15 @@ const VoteTabScreen: React.FC<VoteTabScreenProps> = ({ election_id }) => {
                 const db = getDatabase();
                 const candidatesRef = ref(db, 'candidates');
 
-                onValue(candidatesRef, (snapshot) => {
+                onValue(candidatesRef, async (snapshot) => {
                     const data = snapshot.val();
                     const candidatesArray: Candidate[] = Object.values(data);
                     const filteredCandidates = candidatesArray.filter(candidate =>
                         candidate.elections.includes(election_id.toString())
                     );
+
+                    // Sort candidates by candidate_id in ascending order
+                    filteredCandidates.sort((a, b) => a.candidate_id - b.candidate_id);
 
                     setCandidates(filteredCandidates);
                 });
@@ -37,88 +40,73 @@ const VoteTabScreen: React.FC<VoteTabScreenProps> = ({ election_id }) => {
             }
         };
 
-        const checkHasVoted = async () => {
+        const checkVoteStatus = async () => {
             try {
                 const email = await AsyncStorage.getItem('userEmail');
                 if (!email) {
-                    throw new Error('User not found');
+                    throw new Error('User email not found');
                 }
 
-                const response = await fetch(`${API_URL}/hasVotedInElection/${election_id}/${email}`);
-                const { hasVoted } = await response.json();
-                setHasVoted(hasVoted);
+                const db = getDatabase();
+                const votersRef = ref(db, 'voters');
+
+                onValue(votersRef, async (snapshot) => {
+                    const voters = snapshot.val();
+                    const voter = (Object.values(voters) as Voter[]).find((voter) => voter.email === email);
+
+                    if (!voter) {
+                        throw new Error('Voter not found');
+                    }
+
+                    const response = await fetch(`${API_URL}/hasVotedInElection/${election_id}/${voter.voter_id}`);
+                    const data = await response.json();
+                    setHasVoted(data.hasVoted);
+                });
             } catch (error) {
-                console.error("Error checking vote status: ", error);
+                console.error('Error checking vote status:', error);
             }
         };
 
+        checkVoteStatus();
         fetchCandidates();
-        checkHasVoted();
     }, [election_id]);
-
-    const verifyPassword = async (inputPassword: string) => {
-        const email = await AsyncStorage.getItem('userEmail');
-        if (!email) {
-            throw new Error('User not found');
-        }
-
-        const db = getDatabase();
-        const votersRef = ref(db, 'voters');
-        const snapshot = await new Promise<any>((resolve, reject) => {
-            onValue(votersRef, (snapshot) => resolve(snapshot), { onlyOnce: true });
-        });
-
-        const votersData = snapshot.val();
-        const user = (Object.values(votersData) as Voter[]).find((voter: Voter) => voter.email === email);
-
-        if (!user) {
-            throw new Error('User not found');
-        }
-
-        return user.password === inputPassword;
-    };
 
     const handleVote = async () => {
         try {
             const email = await AsyncStorage.getItem('userEmail');
             if (!email) {
-                throw new Error('User not found');
+                throw new Error('User email not found');
             }
 
             const db = getDatabase();
             const votersRef = ref(db, 'voters');
-            const snapshot = await new Promise<any>((resolve, reject) => {
-                onValue(votersRef, (snapshot) => resolve(snapshot), { onlyOnce: true });
+
+            let voterId;
+            onValue(votersRef, (snapshot) => {
+                const voters = snapshot.val();
+                const voter = (Object.values(voters) as Voter[]).find((voter) => voter.email === email);
+                if (voter) {
+                    voterId = voter.voter_id;
+                }
             });
 
-            const votersData = snapshot.val();
-            const user = (Object.values(votersData) as Voter[]).find((voter: Voter) => voter.email === email);
-
-            if (!user) {
-                throw new Error('User not found');
+            if (!voterId) {
+                throw new Error('Voter ID not found');
             }
 
-            const isPasswordCorrect = await verifyPassword(password);
-            if (!isPasswordCorrect) {
-                throw new Error('Incorrect password');
-            }
-
-            const response = await fetch(`${API_URL}/addVote`, {
+            const response = await fetch('http://localhost:3000/addVote', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    election_id,
-                    candidate_id: selectedCandidateId,
-                    voter_id: user.voter_id,
+                    idElection: parseInt(election_id),
+                    idCandidate: parseInt(selectedCandidateId),
+                    idVoter: voterId,
                 }),
             });
 
-            const responseText = await response.text();
-            console.log("API Response:", responseText);
-
-            const data = JSON.parse(responseText);
+            const data = await response.json();
 
             if (!response.ok) {
                 throw new Error(data.message || 'Failed to vote');
@@ -126,52 +114,33 @@ const VoteTabScreen: React.FC<VoteTabScreenProps> = ({ election_id }) => {
 
             setHasVoted(true);
             setModalVisible(false);
-            Alert.alert('Success', 'Vote submitted successfully');
-
-            const verifyResponse = await fetch(`${API_URL}/getAllVotes`);
-            const verifyData = await verifyResponse.json();
-
-            const voteExists = verifyData.some((vote: any) => {
-                const electionIdHex = vote[0]?.hex;
-                const candidateIdHex = vote[1]?.hex;
-                const voterIdHex = vote[2]?.hex;
-
-                if (electionIdHex && candidateIdHex && voterIdHex) {
-                    const election_id_value = BigNumber.from(electionIdHex).toString();
-                    const candidate_id_value = BigNumber.from(candidateIdHex).toString();
-                    const voter_id_value = BigNumber.from(voterIdHex).toString();
-                    return election_id_value === election_id &&
-                        candidate_id_value === selectedCandidateId &&
-                        voter_id_value === user.voter_id;
-                }
-                return false;
-            });
-
-            if (voteExists) {
-                setHasVoted(true);
-                Alert.alert('You have already voted.');
-            }
+            Alert.alert('Success', 'Vote added successfully');
         } catch (error: any) {
             const errorMessage = error.message || 'Something went wrong';
             Alert.alert('Error', errorMessage);
         }
     };
 
-    const renderCandidateItem = ({ item }: { item: Candidate }) => (
-        <TouchableOpacity
-            style={[styles.candidateItem, item.candidate_id.toString() === selectedCandidateId ? styles.selectedCandidate : null]}
-            onPress={() => {
-                setSelectedCandidateId(item.candidate_id.toString());
-                setModalVisible(true);
-            }}
-            disabled={hasVoted}
-        >
-            <View style={styles.candidateIdCircle}>
-                <Text style={styles.candidateId}>{item.candidate_id}</Text>
-            </View>
-            <Text style={styles.candidateName}>{item.name}</Text>
-        </TouchableOpacity>
-    );
+    const renderCandidateItem = ({ item }: { item: any }) => {
+        const id = item.candidate_id;
+        const name = item.name;
+
+        return (
+            <TouchableOpacity
+                style={[styles.candidateItem, id.toString() === selectedCandidateId ? styles.selectedCandidate : null]}
+                onPress={() => {
+                    setSelectedCandidateId(id.toString());
+                    setModalVisible(true);
+                }}
+                disabled={hasVoted}
+            >
+                <View style={styles.candidateIdCircle}>
+                    <Text style={styles.candidateId}>{id}</Text>
+                </View>
+                <Text style={styles.candidateName}>{name}</Text>
+            </TouchableOpacity>
+        );
+    };
 
     return (
         <View style={styles.container}>

@@ -16,12 +16,12 @@ export interface BigNumberType {
 }
 
 export interface Candidate {
-  candidate_id: string;
+  candidate_id: number;
   elections: string;
   name: string;
   vision: string;
   mission: string;
-  voteCount: BigNumberType;
+  voteCount: number;
 }
 
 export interface ElectionContextProps {

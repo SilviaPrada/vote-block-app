@@ -24,7 +24,7 @@ const PieChartComponent: React.FC<PieChartComponentProps> = ({ data }) => {
                 }}
                 accessor="population"
                 backgroundColor="transparent"
-                paddingLeft="90"
+                paddingLeft="100"
                 hasLegend={false}
                 absolute
             />
