@@ -16,6 +16,7 @@ const VoteTabScreen: React.FC<VoteTabScreenProps> = ({ election_id }) => {
     const [password, setPassword] = useState<string>('');
     const [hasVoted, setHasVoted] = useState<boolean>(false);
     const [modalVisible, setModalVisible] = useState<boolean>(false);
+    const [userPassword, setUserPassword] = useState<string>('');
 
     useEffect(() => {
         const fetchCandidates = async () => {
@@ -58,6 +59,8 @@ const VoteTabScreen: React.FC<VoteTabScreenProps> = ({ election_id }) => {
                         throw new Error('Voter not found');
                     }
 
+                    setUserPassword(voter.password);
+
                     const response = await fetch(`${API_URL}/hasVotedInElection/${election_id}/${voter.voter_id}`);
                     const data = await response.json();
                     setHasVoted(data.hasVoted);
@@ -73,6 +76,11 @@ const VoteTabScreen: React.FC<VoteTabScreenProps> = ({ election_id }) => {
 
     const handleVote = async () => {
         try {
+            if (password !== userPassword) {
+                Alert.alert('Error', 'Incorrect password');
+                return;
+            }
+
             const email = await AsyncStorage.getItem('userEmail');
             if (!email) {
                 throw new Error('User email not found');
@@ -94,7 +102,7 @@ const VoteTabScreen: React.FC<VoteTabScreenProps> = ({ election_id }) => {
                 throw new Error('Voter ID not found');
             }
 
-            const response = await fetch('http://localhost:3000/addVote', {
+            const response = await fetch(`${API_URL}/addVote`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
