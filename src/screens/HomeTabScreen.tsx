@@ -1,17 +1,28 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, SafeAreaView, Dimensions, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, SafeAreaView, Dimensions, ActivityIndicator, TextInput } from 'react-native';
 import { getDatabase, onValue, ref } from 'firebase/database';
-import { Candidate } from '../types/app';
+import { Candidate, VoteHistoryItem } from '../types/app';
 import PieChartComponent from '../component/PieChart';
 import { API_URL } from '@env';
+import { BigNumber } from '@ethersproject/bignumber';
 
 type HomeTabScreenProps = {
     election_id: string;
 };
+interface VoteHistory {
+    idCandidate: BigNumber;
+    voteCount: BigNumber;
+    timestamp: BigNumber;
+    transactionHash: string;
+    blockNumber: BigNumber;
+}
 
 const HomeTabScreen: React.FC<HomeTabScreenProps> = ({ election_id }) => {
     const [candidates, setCandidates] = useState<Candidate[]>([]);
     const [loading, setLoading] = useState(false);
+    const [searchText, setSearchText] = useState('');
+    const [voteHistories, setVoteHistories] = useState<VoteHistory[]>([]);
+    const [filteredHistories, setFilteredHistories] = useState<VoteHistory[]>([]);
 
     useEffect(() => {
         const fetchCandidates = async () => {
@@ -48,6 +59,40 @@ const HomeTabScreen: React.FC<HomeTabScreenProps> = ({ election_id }) => {
         };
 
         fetchCandidates();
+
+        const fetchVoteHistory = async () => {
+            try {
+                const response = await fetch(`${API_URL}/getAllVotes`);
+                const data = await response.json();
+                const formattedData: VoteHistory[] = data.map((item: any[], index: number) => {
+                    // Check if the item has all the expected elements
+                    if (item.length < 7) {
+                        console.warn(`Incomplete data for item ${index}:`, item);
+                        return null;
+                    }
+
+                    try {
+                        return {
+                            idCandidate: BigNumber.from(item[1]?.hex || '0'),
+                            voteCount: BigNumber.from(item[3]?.hex || '0'),
+                            timestamp: BigNumber.from(item[4]?.hex || '0'),
+                            transactionHash: typeof item[5] === 'string' ? item[5] : 'N/A',
+                            blockNumber: BigNumber.from(item[6]?.hex || '0'),
+                        };
+                    } catch (error) {
+                        console.error(`Error processing item ${index}:`, error);
+                        return null;
+                    }
+                }).filter((item: VoteHistory | null): item is VoteHistory => item !== null);
+
+                setVoteHistories(formattedData);
+                setFilteredHistories(formattedData);
+            } catch (error) {
+                console.error("Error fetching vote history: ", error);
+            }
+        };
+
+        fetchVoteHistory();
     }, [election_id]);
 
     const renderCandidateItem = ({ item }: { item: Candidate }) => (
@@ -65,6 +110,39 @@ const HomeTabScreen: React.FC<HomeTabScreenProps> = ({ election_id }) => {
             </View>
         </View>
     );
+
+    const renderVoteHistoryItem = ({ item }: { item: VoteHistory }) => (
+        <View style={styles.historyItem}>
+            <Text style={styles.historyText}>Candidate ID: {item.idCandidate.toString()}</Text>
+            <Text style={styles.historyText}>Vote Count: {item.voteCount.toString()}</Text>
+            <Text style={styles.historyText}>Timestamp: {formatDateTime(item.timestamp.toString())}</Text>
+            <Text style={styles.historyText}>Transaction Hash: {item.transactionHash.slice(0, 10)}...</Text>
+            <Text style={styles.historyText}>Block Number: {item.blockNumber.toString()}</Text>
+        </View>
+    );
+
+    const handleSearch = (text: string) => {
+        setSearchText(text);
+        if (text) {
+            const filtered = voteHistories.filter(history =>
+                history.idCandidate.toString().includes(text)
+            );
+            setFilteredHistories(filtered);
+        } else {
+            setFilteredHistories(voteHistories);
+        }
+    };
+
+    const formatDateTime = (timestamp: string) => {
+        if (!timestamp) return 'Invalid date';
+        try {
+            const unixTimestamp = BigNumber.from(timestamp).toNumber();
+            const dateObj = new Date(unixTimestamp * 1000);
+            return dateObj.toLocaleString(); // Adjust based on your localization preferences
+        } catch (error) {
+            return 'Invalid date';
+        }
+    };
 
     const totalVotes = candidates.reduce((sum, candidate) => sum + (candidate.voteCount || 0), 0);
     const chartData = candidates.map((candidate, index) => ({
@@ -92,24 +170,24 @@ const HomeTabScreen: React.FC<HomeTabScreenProps> = ({ election_id }) => {
                         />
                         <Text style={styles.title}>Vote Counting Results</Text>
                         <PieChartComponent data={chartData} />
-                        {/* <View style={styles.voteHistoryContainer}>
+                        <View style={styles.voteHistoryContainer}>
                             <TextInput
                                 style={styles.searchBar}
                                 placeholder="Search by candidate ID"
                                 value={searchText}
                                 onChangeText={handleSearch}
                             />
-                        </View> */}
+                        </View>
                     </>
                 }
-                // ListFooterComponent={
-                //     <FlatList
-                //         data={filteredHistories}
-                //         keyExtractor={(item) => item.key}
-                //         renderItem={renderVoteHistoryItem}
-                //         contentContainerStyle={styles.listContent}
-                //     />
-                // }
+                ListFooterComponent={
+                    <FlatList
+                        data={filteredHistories}
+                        keyExtractor={(item, index) => `vote-history-${index}`}
+                        renderItem={renderVoteHistoryItem}
+                        contentContainerStyle={styles.listContent}
+                    />
+                }
             />
         </SafeAreaView>
     );

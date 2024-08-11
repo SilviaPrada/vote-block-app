@@ -60,6 +60,11 @@ export interface VoteHistory {
   blockNumber: BigNumberType;
 }
 
+export interface VoteHistoryItem {
+  hex: string;
+  type: string;
+}
+
 export type VoterHistory = [
   BigNumberType, // id
   string,        // name

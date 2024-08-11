@@ -53,7 +53,7 @@ const ElectionsScreen: React.FC<Props> = ({ route, navigation }) => {
         };
 
         fetchData();
-    }, []);
+    }, [elections]);
 
     const renderElectionItem = ({ item }: { item: any }) => (
         <TouchableOpacity
